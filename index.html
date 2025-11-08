@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JavaScript Terminal</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/default.min.css">
+  <style>
+    * { margin: 0; padding: 0; }
+    body { 
+      background: #000;
+      color: #fff;
+      font-family: Consolas, Monaco, 'Courier New', monospace, SimHei, 'Microsoft YaHei';
+      height: 100vh;
+      overflow: hidden;
+    }
+    #terminal {
+      white-space: pre-wrap;
+      height: 100%;
+      overflow-y: auto;
+      padding: 1rem;
+      box-sizing: border-box;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    .cursor { 
+      animation: blink 1s step-end infinite;
+      color: #fff;
+    }
+    .prompt { color: #fff; }
+    .error { color: #ff6666; }
+    .warn { color: #ffcc66; }
+    .log { color: #fff; }
+    
+    .hljs {
+      background: transparent;
+      color: #fff;
+      padding: 0;
+      border: none;
+      display: inline;
+    }
+    .hljs-keyword, .hljs-literal, .hljs-symbol, .hljs-name {
+      color: #66ff66;
+    }
+    .hljs-string, .hljs-number, .hljs-regexp {
+      color: #66ccff;
+    }
+    .hljs-comment {
+      color: #cccccc;
+    }
+    .hljs-attr {
+      color: #fff;
+    }
+    .hljs-tag, .hljs-class, .hljs-title {
+      color: #ffcc66;
+    }
+  </style>
+</head>
+<body>
+  <div id="terminal"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+  <script>
+    const terminal = document.getElementById('terminal');
+    let buffer = '';
+    let inputBuffer = '';
+    let cursorPosition = 0; // 光标位置
+    let promptText = '>';
+    let commandHistory = []; // 命令历史记录
+    let historyIndex = -1; // 当前历史记录索引
+    let tempInput = ''; // 临时存储当前输入，用于历史浏览时
+    
+    // 设置提示符
+    function setPrompt(text) {
+      promptText = text;
+      render();
+    }
+
+    // 重定向console方法
+    const originalConsoleLog = console.log;
+    const originalConsoleError = console.error;
+    const originalConsoleWarn = console.warn;
+
+    console.log = function(...args) {
+      const output = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg).join(' ');
+      buffer += `<span class="log">${output}</span>\n`;
+      render();
+      originalConsoleLog(...args);
+    };
+
+    console.error = function(...args) {
+      const output = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg).join(' ');
+      buffer += `<span class="error">${output}</span>\n`;
+      render();
+      originalConsoleError(...args);
+    };
+
+    console.warn = function(...args) {
+      const output = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg).join(' ');
+      buffer += `<span class="warn">${output}</span>\n`;
+      render();
+      originalConsoleWarn(...args);
+    };
+    
+    // 渲染终端内容
+    function render() {
+      // 将输入分成光标前和光标后两部分
+      const beforeCursor = inputBuffer.substring(0, cursorPosition);
+      const afterCursor = inputBuffer.substring(cursorPosition);
+      
+      // 分别对两部分进行高亮处理
+      const highlightedBefore = hljs.highlight(beforeCursor, { language: 'javascript' }).value;
+      const highlightedAfter = hljs.highlight(afterCursor, { language: 'javascript' }).value;
+      
+      terminal.innerHTML = buffer + 
+        `<span class="prompt">${promptText}</span> ` + 
+        highlightedBefore + 
+        '<span class="cursor">█</span>' + 
+        highlightedAfter;
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+    
+    // 执行JavaScript代码
+    function executeCode(code) {
+      // 只有非空命令才添加到历史记录
+      if (code.trim()) {
+        commandHistory.push(code);
+        historyIndex = commandHistory.length; // 重置历史索引
+      }
+      
+      buffer += `<span class="prompt">${promptText}</span> ` + 
+        hljs.highlight(code, { language: 'javascript' }).value + '\n';
+      
+      if (code.trim()) {
+        try {
+          const result = eval(code);
+          if (result !== undefined) {
+            console.log(result);
+          }
+        } catch (error) {
+          console.error(`错误: ${error.message}`);
+        }
+      }
+    }
+    
+    // 处理粘贴事件
+    function handlePaste(e) {
+      e.preventDefault();
+      const clipboardData = e.clipboardData || window.clipboardData;
+      const pastedText = clipboardData.getData('text');
+      
+      // 在光标位置插入粘贴的文本
+      inputBuffer = inputBuffer.substring(0, cursorPosition) + 
+                   pastedText + 
+                   inputBuffer.substring(cursorPosition);
+      cursorPosition += pastedText.length;
+      render();
+    }
+    
+    // 键盘事件处理
+    document.addEventListener('keydown', (e) => {
+      // 允许Ctrl+V或Cmd+V粘贴
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        return;
+      }
+      
+      // 处理Shift+Enter或Ctrl+Enter插入空行
+      if (e.key === 'Enter') {
+        if (e.shiftKey || e.ctrlKey) {
+          e.preventDefault();
+          // 在光标位置插入换行符
+          inputBuffer = inputBuffer.substring(0, cursorPosition) + 
+                       '\n' + 
+                       inputBuffer.substring(cursorPosition);
+          cursorPosition++;
+          render();
+          return;
+        }
+      }
+      
+      e.preventDefault();
+      
+      switch(e.key) {
+        case 'Enter':
+          executeCode(inputBuffer);
+          inputBuffer = '';
+          cursorPosition = 0;
+          render();
+          break;
+          
+        case 'Backspace':
+          if (cursorPosition > 0) {
+            // 删除光标前的字符
+            inputBuffer = inputBuffer.substring(0, cursorPosition - 1) + 
+                         inputBuffer.substring(cursorPosition);
+            cursorPosition--;
+            render();
+          }
+          break;
+          
+        case 'Delete':
+          if (cursorPosition < inputBuffer.length) {
+            // 删除光标后的字符
+            inputBuffer = inputBuffer.substring(0, cursorPosition) + 
+                         inputBuffer.substring(cursorPosition + 1);
+            render();
+          }
+          break;
+          
+        case 'Escape':
+          inputBuffer = '';
+          cursorPosition = 0;
+          render();
+          break;
+          
+        case 'Tab':
+          // 在光标位置插入制表符
+          inputBuffer = inputBuffer.substring(0, cursorPosition) + 
+                       '  ' + 
+                       inputBuffer.substring(cursorPosition);
+          cursorPosition += 2;
+          render();
+          break;
+          
+        case 'ArrowLeft':
+          // 左移光标
+          if (cursorPosition > 0) {
+            cursorPosition--;
+            render();
+          }
+          break;
+          
+        case 'ArrowRight':
+          // 右移光标
+          if (cursorPosition < inputBuffer.length) {
+            cursorPosition++;
+            render();
+          }
+          break;
+          
+        case 'ArrowUp':
+          // 上移 - 查看上一条历史命令
+          if (commandHistory.length === 0) return;
+          
+          // 首次向上浏览时保存当前输入
+          if (historyIndex === commandHistory.length) {
+            tempInput = inputBuffer;
+          }
+          
+          historyIndex = Math.max(0, historyIndex - 1);
+          inputBuffer = commandHistory[historyIndex];
+          cursorPosition = inputBuffer.length;
+          render();
+          break;
+          
+        case 'ArrowDown':
+          // 下移 - 查看下一条历史命令
+          if (commandHistory.length === 0) return;
+          
+          historyIndex++;
+          // 如果到了历史记录末尾，恢复临时保存的输入
+          if (historyIndex >= commandHistory.length) {
+            historyIndex = commandHistory.length;
+            inputBuffer = tempInput;
+          } else {
+            inputBuffer = commandHistory[historyIndex];
+          }
+          cursorPosition = inputBuffer.length;
+          render();
+          break;
+          
+        default:
+          if (e.key.length === 1) {
+            // 在光标位置插入字符
+            inputBuffer = inputBuffer.substring(0, cursorPosition) + 
+                         e.key + 
+                         inputBuffer.substring(cursorPosition);
+            cursorPosition++;
+            render();
+          }
+      }
+    });
+    
+    // 添加粘贴事件监听
+    document.addEventListener('paste', handlePaste);
+    
+    render();
+    
+    // 自动聚焦终端
+    terminal.focus();
+    document.addEventListener('click', () => {
+      terminal.focus();
+    });
+  </script>
+  <script src="pluginbox.js"></script>
+</body>
+</html>
